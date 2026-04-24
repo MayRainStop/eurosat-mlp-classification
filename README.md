@@ -10,7 +10,16 @@
 - 生成训练集/验证集 `Loss` 曲线、验证集 `Accuracy` 曲线、第一层隐藏层权重可视化、混淆矩阵和错分样例图。
 - 完整保存 `240` 组网格搜索结果，并单独整理最优模型提交材料。
 
+## 报告与提交链接
+
+实验报告：
+- `report.pdf`
+- GitHub Repo：`https://github.com/MayRainStop/eurosat-mlp-classification`
+- 模型权重下载地址：`https://drive.google.com/file/d/1eAFBxHwdhvLdK9Uq4B-5a0SveSodhju4/view?usp=sharing`
+
 ## 仓库目录结构
+
+PS: 目录里包含了放在Google Drive的原始数据、模型权重部分
 
 ```text
 .
@@ -194,15 +203,4 @@ test_accuracy = 0.7053
 - `first_layer_weights_top64.png`：较适合放入正文展示的第一层权重子集图。
 - `confusion_matrix.png`：测试集混淆矩阵。
 - `misclassified_examples.png`：测试集错分样例。
-
-## 报告与提交链接
-
-实验报告：
-
-- `report.pdf`
-
-请在正式提交前，将下面两项替换为你自己的真实链接：
-
-- GitHub Repo：`https://github.com/MayRainStop/eurosat-mlp-classification`
-- 模型权重下载地址：`https://drive.google.com/file/d/1eAFBxHwdhvLdK9Uq4B-5a0SveSodhju4/view?usp=sharing`
 
