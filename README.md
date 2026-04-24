@@ -23,7 +23,6 @@ PS: 目录里包含了放在Google Drive的原始数据、模型权重部分
 
 ```text
 .
-|- EuroSAT_RGB/
 |- mlp_numpy/
 |- results/
 |  |- best_model/
@@ -43,7 +42,6 @@ PS: 目录里包含了放在Google Drive的原始数据、模型权重部分
 
 各目录和文件说明如下：
 
-- `EuroSAT_RGB/`：原始数据集目录，类别子文件夹保持题目给定结构不变。
 - `mlp_numpy/`：核心实现代码，包括数据读取、MLP、训练器、评估指标与可视化函数。
 - `results/best_model/`：最优模型及报告提交所需图表。
 - `results/relu/`：按 `ReLU` 激活函数整理的网格搜索实验结果。
