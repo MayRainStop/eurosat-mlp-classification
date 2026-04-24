@@ -1,0 +1,445 @@
+\documentclass[UTF8,a4paper,11pt]{ctexart}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{setspace}
+\usepackage{pdflscape}
+
+\graphicspath{{results/best_model/}}
+
+\captionsetup{font=small, labelfont=bf}
+\setlist[itemize]{leftmargin=2.2em, itemsep=0.25em, topsep=0.35em}
+\setlist[enumerate]{leftmargin=2.4em, itemsep=0.3em, topsep=0.35em}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.2em}
+\setstretch{1.2}
+\renewcommand{\arraystretch}{1.2}
+\pagestyle{plain}
+
+\hypersetup{
+    hidelinks
+}
+
+\begin{document}
+
+\begin{center}
+    {\zihao{1}\bfseries Homework 1\par}
+    \vspace{0.6em}
+    {\zihao{3}\bfseries 深度学习与空间智能\par}
+    \vspace{1em}
+    {\zihao{-3}\bfseries 基于 NumPy 的多层感知机在 EuroSAT RGB 数据集上的实现\par}
+    \vspace{1.1em}
+    {\zihao{-4} 朱宇玄\quad 25110980033\par}
+\end{center}
+\vspace{0.8em}
+
+\begin{itemize}
+    \item GitHub Repo：\url{https://github.com/MayRainStop/eurosat-mlp-classification}
+    \item 模型权重下载地址：\url{https://drive.google.com/file/d/1eAFBxHwdhvLdK9Uq4B-5a0SveSodhju4/view?usp=sharing}
+\end{itemize}
+
+\section{实验内容与任务要求}
+
+本次作业要求在不依赖 PyTorch、TensorFlow、JAX 等深度学习框架的前提下，仅使用 NumPy 完成一个多层感知机分类器，并在 EuroSAT RGB 数据集上开展训练与测试。结合题目要求，本实验需要完成的核心内容包括：
+
+\begin{itemize}
+    \item 使用 NumPy 实现 MLP 的前向传播、反向传播和参数更新；
+    \item 在训练中使用交叉熵损失、L2 正则化、SGD 和学习率衰减；
+    \item 使用验证集选择最优模型，并在测试集上报告结果；
+    \item 给出训练过程中训练集/验证集的 Loss 曲线，以及验证集 Accuracy 曲线；
+    \item 将训练好的第一层隐藏层权重恢复为图像尺寸进行可视化；
+    \item 结合混淆矩阵和错分样例进行误差分析。
+\end{itemize}
+
+\section{模型与方法}
+
+\subsection{数据集与预处理}
+
+本实验使用 EuroSAT RGB 数据集，共包含 10 个地表场景类别。原始数据集中共有 27000 张图像，但在实际读取过程中发现其中 1 张图像无法正常解码，因此在数据加载阶段将其自动跳过，最终用于实验的样本总数为 26999 张。数据集所包含的类别如下：
+
+\begin{center}
+\small
+\begin{tabular}{ccccc}
+AnnualCrop & Forest & HerbaceousVegetation & Highway & Industrial \\
+Pasture & PermanentCrop & Residential & River & SeaLake
+\end{tabular}
+\end{center}
+
+为保证后续训练的稳定性与可比性，本文采用如下预处理流程：
+
+\begin{itemize}
+    \item 将每张 RGB 图像统一调整为 $32 \times 32$；
+    \item 将像素值线性归一化到 $[0, 1]$；
+    \item 将图像展平成长度为 $32 \times 32 \times 3 = 3072$ 的向量；
+    \item 按 $70\%/15\%/15\%$ 划分训练集、验证集和测试集；
+    \item 使用训练集统计量对训练/验证/测试特征进行标准化。
+\end{itemize}
+
+最终的数据划分情况见表~\ref{tab:data-split}。
+
+\begin{table}[H]
+    \centering
+    \caption{数据集划分}
+    \label{tab:data-split}
+    \begin{tabular}{lccc}
+        \toprule
+        数据子集 & 样本数 & 比例 & 说明 \\
+        \midrule
+        训练集 & 18899 & 70\% 左右 & 用于参数学习 \\
+        验证集 & 4049 & 15\% 左右 & 用于模型选择与 early stopping \\
+        测试集 & 4051 & 15\% 左右 & 用于最终结果评估 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{MLP 结构}
+
+结合作业要求以及超参数搜索结果，最终模型采用三层参数层的 MLP 结构，即输入层、两层隐藏层和输出层，其网络结构可写为：
+
+\begin{equation}
+\bm{x} \in \mathbb{R}^{3072}
+\rightarrow
+\bm{h}_1 \in \mathbb{R}^{2048}
+\rightarrow
+\bm{h}_2 \in \mathbb{R}^{256}
+\rightarrow
+\bm{p} \in \mathbb{R}^{10}.
+\end{equation}
+
+对应的前向传播过程表示为：
+
+\begin{align}
+\bm{h}_1 &= \phi(\bm{x}\bm{W}_1 + \bm{b}_1), \\
+\bm{h}_2 &= \phi(\bm{h}_1\bm{W}_2 + \bm{b}_2), \\
+\bm{z}   &= \bm{h}_2\bm{W}_3 + \bm{b}_3, \\
+\bm{p}   &= \text{softmax}(\bm{z}),
+\end{align}
+
+其中 $\phi(\cdot)$ 表示激活函数。综合验证集表现，最终模型选择 ReLU 作为隐藏层激活函数。
+
+\subsection{损失函数与优化策略}
+
+模型的优化目标由交叉熵损失与 L2 正则项共同构成：
+
+\begin{equation}
+\mathcal{L}
+=
+-\frac{1}{N}\sum_{i=1}^{N}\log p_{i,y_i}
++
+\frac{\lambda}{2}\sum_{\ell=1}^{3}\|\bm{W}_{\ell}\|_2^2.
+\end{equation}
+
+参数优化采用 mini-batch SGD，其中 batch size 设置为 128。学习率使用按 epoch 递减的指数衰减策略：
+
+\begin{equation}
+\eta_t = \eta_0 \cdot \gamma^{t-1},
+\end{equation}
+
+其中初始学习率 $\eta_0 = 0.1$，衰减系数 $\gamma = 0.95$。此外，为避免模型在后期训练中出现明显过拟合，实验中引入了 early stopping 机制，并将 patience 设置为 10。
+
+\section{实验设置与超参数搜索}
+
+\subsection{搜索空间}
+
+为系统比较不同网络结构与优化参数对模型性能的影响，本文对主要超参数进行了完整的网格搜索。搜索空间如表~\ref{tab:grid-search} 所示。
+
+\begin{table}[H]
+    \centering
+    \caption{超参数搜索空间}
+    \label{tab:grid-search}
+    \begin{tabular}{ll}
+        \toprule
+        超参数 & 取值 \\
+        \midrule
+        激活函数 & ReLU, Tanh \\
+        学习率 & 0.003, 0.01, 0.03, 0.1 \\
+        权重衰减 & $10^{-5}$, $10^{-4}$, $10^{-3}$ \\
+        隐藏层宽度 & $(2048,1024)$, $(2048,512)$, $(2048,256)$, $(2048,128)$ \\
+        & $(1024,512)$, $(1024,256)$, $(1024,128)$ \\
+        & $(512,512)$, $(512,256)$, $(512,128)$ \\
+        训练轮数上限 & 200 \\
+        early stopping patience & 10 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+按照上述搜索空间，最终共完成 $2 \times 4 \times 3 \times 10 = 240$ 组有效实验。需要特别说明的是，学习率 $0.3$ 未被纳入正式网格搜索范围。这是因为在最优结构上的额外探测实验中，学习率 $0.3$ 会迅速引发 overflow/NaN，且验证集准确率退化到接近随机猜测水平，说明该量级对于当前模型而言明显过大，并会导致训练过程发散。
+
+\subsection{最优配置}
+
+综合验证集表现，最优模型的具体配置与总体结果见表~\ref{tab:best-config}。完整网格搜索结果见附录B。
+
+\begin{table}[H]
+    \centering
+    \caption{最优模型配置与总体结果}
+    \label{tab:best-config}
+    \begin{tabular}{lc}
+        \toprule
+        项目 & 数值 \\
+        \midrule
+        隐藏层宽度 & $(2048, 256)$ \\
+        激活函数 & ReLU \\
+        初始学习率 & 0.1 \\
+        学习率衰减 & 0.95 \\
+        权重衰减 & $10^{-3}$ \\
+        batch size & 128 \\
+        最佳 epoch & 58 \\
+        最佳验证集准确率 & 0.7152 \\
+        测试集损失 & 2.4853 \\
+        测试集准确率 & 0.7053 \\
+        最优模型训练时间 & 848.19 s \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{实验结果与分析}
+
+\subsection{训练过程可视化}
+
+图~\ref{fig:curves} 展示了最优模型在训练过程中的损失变化以及验证集准确率变化。结合曲线可以得到以下观察：
+
+\begin{itemize}
+    \item 训练损失整体持续下降，从初始约 4.96 下降到最终约 1.57；
+    \item 验证损失在前期快速下降，随后在 2.44--2.50 附近进入平台期；
+    \item 验证集准确率在前 10 个 epoch 内快速提升，之后逐步趋于稳定，并在第 58 个 epoch 达到最高值 71.52\%；
+    \item 训练集性能继续提升而验证集增益有限，说明后期存在一定程度的过拟合，使用 early stopping 是合理的。
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{loss_curves.png}
+        \caption{训练集与验证集损失曲线}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{validation_accuracy_curve.png}
+        \caption{验证集准确率曲线}
+    \end{subfigure}
+    \caption{最优模型训练过程可视化}
+    \label{fig:curves}
+\end{figure}
+
+\subsection{第一层隐藏层权重可视化}
+
+根据作业要求，需将训练完成后第一层隐藏层的权重恢复为图像尺寸进行可视化。由于输入维度为 $32 \times 32 \times 3$，因此第一层中每一个隐藏单元都对应一个 $32 \times 32 \times 3$ 的权重块。图~\ref{fig:w1-top64} 展示了按 L2 范数选取的 64 个第一层隐藏层权重图，便于观察其主要模式；完整的 2048 个隐藏单元的权重可视化结果见附录A。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{first_layer_weights_top64.png}
+    \caption{第一层隐藏层权重可视化（Top 64）}
+    \label{fig:w1-top64}
+\end{figure}
+
+从图中可以看出，这些权重模式并不像卷积网络中常见的边缘检测器或角点检测器那样具有强烈的局部空间结构，而更多表现为颜色对比、局部纹理以及粗粒度区域响应的组合。这一现象与模型本身采用全连接 MLP 而非卷积结构是一致的：MLP 不具备局部连接与权重共享机制，因此所学习到的“滤波器”通常更分散、噪声更强，但仍然能够反映出与颜色分布、纹理粗糙度和区域统计特征相关的判别信息。
+
+首先，我们发现图2中展示的权重图像，明显偏向不同的颜色，猜测含义如下：
+
+\begin{itemize}
+	\item 偏绿色的图像，可能与森林、草地、农作物有关，如第一行的第三张、第二行的第二张；
+	\item 偏蓝色的图像，可能与河流、湖泊、海洋有关，如第一行的第六张、第一行的第七张；
+	\item 偏红色的图像，可能与裸地、农田、工业区有关，如第二行的第六张、第七行的第一张。
+	\item 颜色较杂乱的图像，说明该隐藏单元没有形成容易解释的单一颜色偏好，或者它学习到的是更复杂/噪声化的像素组合。
+\end{itemize}
+
+其次，我们发现一部分权重图像有明显的空间形状，猜测含义如下：
+
+\begin{itemize}
+	\item 包含一条弯曲或斜向的带状区域的图像，可能类似河流、公路，如第一行的第七张；
+	\item 包含大片均匀区域的图像，可能对应湖泊、森林、草地，如第八行的第五张；
+	\item 包含网格状 / 块状结构的图像，可能对应住宅区、工业区、农田，如第六行的第六张。
+\end{itemize}
+
+\subsection{测试集结果与类别级指标}
+
+表~\ref{tab:per-class} 给出了测试集上各类别的 Precision、Recall 和 F1-score。整体来看，有如下结论：
+
+\begin{itemize}
+    \item 表现最好的类别是 Forest（F1 = 0.8790）和 SeaLake（F1 = 0.8542）；
+    \item Industrial（F1 = 0.8243）和 Pasture（F1 = 0.7520）也取得了较好的识别效果；
+    \item 表现最弱的类别是 Highway（F1 = 0.5093）和 PermanentCrop（F1 = 0.5201）；
+    \item HerbaceousVegetation（F1 = 0.6184）和 River（F1 = 0.6548）也存在明显的混淆现象。
+\end{itemize}
+
+\begin{table}[H]
+    \centering
+    \caption{测试集各类别分类指标}
+    \label{tab:per-class}
+    \small
+    \begin{tabular}{lcccc}
+        \toprule
+        类别 & Precision & Recall & F1-score & Support \\
+        \midrule
+        AnnualCrop & 0.6851 & 0.6667 & 0.6757 & 447 \\
+        Forest & 0.8534 & 0.9062 & 0.8790 & 437 \\
+        HerbaceousVegetation & 0.6217 & 0.6151 & 0.6184 & 465 \\
+        Highway & 0.5220 & 0.4972 & 0.5093 & 358 \\
+        Industrial & 0.8466 & 0.8032 & 0.8243 & 371 \\
+        Pasture & 0.7580 & 0.7461 & 0.7520 & 319 \\
+        PermanentCrop & 0.5105 & 0.5301 & 0.5201 & 366 \\
+        Residential & 0.7002 & 0.7427 & 0.7208 & 478 \\
+        River & 0.6512 & 0.6584 & 0.6548 & 363 \\
+        SeaLake & 0.8701 & 0.8389 & 0.8542 & 447 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{混淆矩阵与错误分析}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.70\textwidth]{confusion_matrix.png}
+    \caption{测试集混淆矩阵}
+    \label{fig:confusion}
+\end{figure}
+
+图~\ref{fig:confusion} 给出了测试集上的混淆矩阵，图~\ref{fig:misclassified} 展示了部分错分样例。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.88\textwidth]{misclassified_examples.png}
+    \caption{部分错分样例}
+    \label{fig:misclassified}
+\end{figure}
+
+结合两者可以总结出以下几类典型错误：
+
+\begin{enumerate}
+    \item \textbf{PermanentCrop 与 HerbaceousVegetation 相互混淆最严重。} \\
+    PermanentCrop 被错分为 HerbaceousVegetation 的样本数为 56，反向混淆也达到 54。这两类样本都以大面积植被纹理为主，颜色分布和地块纹理较为接近，因此仅依赖全连接 MLP 对原始像素建模时较难进行稳定区分。
+    
+    以图4第二行第一张为例，这张图虽然是 PermanentCrop，但农田的地块划分并不清晰，颜色也以黄色为主，包含一点点浅绿色，因此被被错分为 HerbaceousVegetation。
+
+    \item \textbf{River 与 Highway 容易相互混淆。} \\
+    River 被错分为 Highway 的样本有 53 个，Highway 被错分为 River 的样本有 47 个。这说明两者在俯视视角下都可能呈现狭长的线性结构，当周围背景较复杂时，模型更容易混淆二者。
+    
+    以图4第四行第三张为例，这张图虽然是 Highway，但可以发现高速路之间有狭长的同色条带。这样一来，中间的蓝绿色条带就会被识别成 River 的主体，而高速路则被当成两侧的堤岸。
+
+    \item \textbf{AnnualCrop 与 PermanentCrop 也存在明显混淆。} \\
+    AnnualCrop 被错分为 PermanentCrop 的样本有 51 个，PermanentCrop 被错分为 AnnualCrop 的样本有 41 个。这两类都属于农业相关场景，其块状纹理和颜色模式较为相似，因此容易在像素级表征上发生混淆。
+
+    \item \textbf{Highway 与 Residential/AnnualCrop 之间存在跨类别误判。} \\
+    Highway 被错分为 AnnualCrop 的样本有 32 个，被错分为 Residential 的样本有 30 个；与此同时，Residential 也有 31 个样本被错分为 Highway。这说明模型对于“道路结构”与“城市纹理”之间的判别边界把握仍不够稳定。
+    
+    以图4第四行第四张为例，这张图虽然是 AnnualCrop，但农田的地块恰巧十分狭长，且是黄绿两色相间隔。这样黄色的农田会被识别成 Highway 的主体，绿色的农田则被识别成高速路之间的空地。
+
+    \item \textbf{Forest 与 SeaLake 存在一定混淆。} \\
+    Forest 被错分为 SeaLake 的样本有 28 个，而 SeaLake 被错分为 Forest 的样本有 40 个。这一现象可能与局部阴影、色调偏暗以及大面积均匀区域所带来的视觉相似性有关。
+    
+    以图4第一行第三张为例，这张图是 SeaLake，但看上去几乎是单色的图片，没有任何纹理。这样的大面积暗色既符合SeaLake的特征，也符合Forest的特征。
+\end{enumerate}
+
+总体而言，错误主要集中在视觉纹理相似、颜色分布接近，或同时具有明显线性/块状结构的类别对之间。这表明纯 MLP 在直接处理原始像素时，尽管能够学习一定的全局判别模式，但在更复杂的局部空间结构建模方面仍然存在明显不足。
+
+\section{结论与总结}
+
+本文基于纯 NumPy 完成了 EuroSAT RGB 数据集上的 MLP 分类器实现，并系统比较了激活函数、学习率、权重衰减以及隐藏层宽度等因素对分类性能的影响。综合实验结果，可以得到以下结论：
+
+\begin{itemize}
+    \item 在当前数据与实现设定下，两层隐藏层结构明显优于单隐藏层结构，其中 $(2048, 256)$ + ReLU 表现最好；
+    \item 合理的学习率与权重衰减非常关键。学习率过大（如 0.3）会导致训练发散，而 $0.1$ 配合衰减策略能够在收敛速度与稳定性之间取得较好平衡；
+    \item early stopping 能有效抑制后期过拟合，使模型在第 58 个 epoch 附近获得最佳验证集性能；
+    \item 最优模型在测试集上达到 70.53\% 的准确率，说明纯 MLP 对遥感图像分类已经具有一定效果，但对细粒度纹理和局部结构相似类别仍存在明显混淆；
+    \item 从第一层权重和错误样例分析可以看出，MLP 更擅长学习粗粒度的颜色与纹理模式，而在空间局部结构建模方面弱于卷积网络。
+\end{itemize}
+
+总体而言，本实验较为完整地实现并验证了作业要求中的 MLP 分类流程，并通过系统的可视化与误差分析展示了模型的优势与局限。实验结果说明，即使在不依赖深度学习框架、仅使用 NumPy 的条件下，MLP 仍然能够在 EuroSAT RGB 数据集上获得具有参考价值的分类性能；但与此同时，其在空间局部结构建模能力上的局限也较为明显，这为后续进一步引入卷积结构或更强特征提取方法提供了清晰的改进方向。
+
+\appendix
+
+\section*{附录A 完整第一层权重可视化}
+
+由于最优模型第一层共有 2048 个隐藏单元，因此完整权重可视化图较大。图~\ref{fig:w1-full} 给出其整体缩略展示。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{first_layer_weights.png}
+    \caption{第一层隐藏层完整权重可视化（2048 个隐藏单元）}
+    \label{fig:w1-full}
+\end{figure}
+
+\section*{附录B 超参数搜索结果总表}
+
+附录表格按激活函数分别给出 ReLU 与 Tanh 的完整搜索结果。为保留全部实验记录，行索引为隐藏层结构；列索引按学习率分组，每个学习率分组下三列依次对应权重衰减 $10^{-5}$、$10^{-4}$ 和 $10^{-3}$；单元格记录该组实验的最佳验证集准确率。
+
+\begin{landscape}
+\begin{table}[H]
+    \centering
+    \small
+    \setlength{\tabcolsep}{2.6pt}
+    \renewcommand{\arraystretch}{1.16}
+    \caption{ReLU 搜索结果总表（单元格为最佳验证集准确率）}
+    \label{tab:relu-grid-results}
+    \begin{tabular}{llcccccccccc}
+        \toprule
+        \multirow{2}{*}{学习率} & \multirow{2}{*}{权重衰减} & \multicolumn{10}{c}{隐藏层结构} \\
+        \cmidrule(lr){3-12}
+        & & $(2048,1024)$ & $(2048,512)$ & $(2048,256)$ & $(2048,128)$ & $(1024,512)$ & $(1024,256)$ & $(1024,128)$ & $(512,512)$ & $(512,256)$ & $(512,128)$ \\
+        \midrule
+        \multirow{3}{*}{0.003} & $10^{-5}$ & 0.6537 & 0.6525 & 0.6458 & 0.6374 & 0.6486 & 0.6486 & 0.6389 & 0.6369 & 0.6421 & 0.6216 \\
+        & $10^{-4}$ & 0.6528 & 0.6513 & 0.6451 & 0.6377 & 0.6508 & 0.6493 & 0.6399 & 0.6402 & 0.6426 & 0.6236 \\
+        & $10^{-3}$ & 0.6523 & 0.6518 & 0.6486 & 0.6372 & 0.6505 & 0.6488 & 0.6392 & 0.6382 & 0.6431 & 0.6226 \\
+        \midrule
+        \multirow{3}{*}{0.01} & $10^{-5}$ & 0.6878 & 0.6868 & 0.6925 & 0.6826 & 0.6826 & 0.6821 & 0.6861 & 0.6730 & 0.6802 & 0.6779 \\
+        & $10^{-4}$ & 0.6900 & 0.6871 & 0.6918 & 0.6762 & 0.6861 & 0.6816 & 0.6883 & 0.6728 & 0.6772 & 0.6723 \\
+        & $10^{-3}$ & 0.6938 & 0.6888 & 0.6903 & 0.6836 & 0.6836 & 0.6851 & 0.6903 & 0.6762 & 0.6868 & 0.6821 \\
+        \midrule
+        \multirow{3}{*}{0.03} & $10^{-5}$ & 0.6987 & 0.7059 & 0.7029 & 0.6980 & 0.6958 & 0.6965 & 0.6916 & 0.6802 & 0.6867 & 0.6854 \\
+        & $10^{-4}$ & 0.6997 & 0.7031 & 0.7066 & 0.6982 & 0.6951 & 0.6921 & 0.6867 & 0.6857 & 0.6877 & 0.6889 \\
+        & $10^{-3}$ & 0.7029 & 0.7056 & 0.7051 & 0.6938 & 0.7014 & 0.6950 & 0.7017 & 0.6888 & 0.6933 & 0.6898 \\
+        \midrule
+        \multirow{3}{*}{0.1} & $10^{-5}$ & 0.1099 & 0.7073 & 0.6920 & 0.7012 & 0.1099 & 0.6849 & 0.6866 & 0.1099 & 0.6794 & 0.6678 \\
+        & $10^{-4}$ & 0.1099 & 0.7046 & 0.7039 & 0.6930 & 0.1099 & 0.6915 & 0.6923 & 0.1099 & 0.6841 & 0.6737 \\
+        & $10^{-3}$ & 0.1099 & 0.7068 & 0.7152 & 0.7091 & 0.1099 & 0.7024 & 0.7073 & 0.1099 & 0.6856 & 0.6858 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \small
+    \setlength{\tabcolsep}{2.6pt}
+    \renewcommand{\arraystretch}{1.16}
+    \caption{Tanh 搜索结果总表（单元格为最佳验证集准确率）}
+    \label{tab:tanh-grid-results}
+    \begin{tabular}{llcccccccccc}
+        \toprule
+        \multirow{2}{*}{学习率} & \multirow{2}{*}{权重衰减} & \multicolumn{10}{c}{隐藏层结构} \\
+        \cmidrule(lr){3-12}
+        & & $(2048,1024)$ & $(2048,512)$ & $(2048,256)$ & $(2048,128)$ & $(1024,512)$ & $(1024,256)$ & $(1024,128)$ & $(512,512)$ & $(512,256)$ & $(512,128)$ \\
+        \midrule
+        \multirow{3}{*}{0.003} & $10^{-5}$ & 0.5927 & 0.5843 & 0.5784 & 0.5806 & 0.5819 & 0.5747 & 0.5750 & 0.5769 & 0.5703 & 0.5658 \\
+        & $10^{-4}$ & 0.5925 & 0.5843 & 0.5784 & 0.5811 & 0.5821 & 0.5747 & 0.5747 & 0.5769 & 0.5705 & 0.5658 \\
+        & $10^{-3}$ & 0.5913 & 0.5838 & 0.5779 & 0.5782 & 0.5819 & 0.5742 & 0.5732 & 0.5759 & 0.5651 & 0.5653 \\
+        \midrule
+        \multirow{3}{*}{0.01} & $10^{-5}$ & 0.6362 & 0.6357 & 0.6397 & 0.6332 & 0.6350 & 0.6290 & 0.6288 & 0.6320 & 0.6303 & 0.6320 \\
+        & $10^{-4}$ & 0.6360 & 0.6357 & 0.6394 & 0.6310 & 0.6350 & 0.6290 & 0.6313 & 0.6320 & 0.6300 & 0.6261 \\
+        & $10^{-3}$ & 0.6360 & 0.6382 & 0.6342 & 0.6305 & 0.6337 & 0.6295 & 0.6283 & 0.6320 & 0.6278 & 0.6253 \\
+        \midrule
+        \multirow{3}{*}{0.03} & $10^{-5}$ & 0.6503 & 0.6535 & 0.6609 & 0.6604 & 0.6537 & 0.6567 & 0.6503 & 0.6515 & 0.6508 & 0.6542 \\
+        & $10^{-4}$ & 0.6508 & 0.6542 & 0.6619 & 0.6609 & 0.6537 & 0.6570 & 0.6500 & 0.6528 & 0.6499 & 0.6545 \\
+        & $10^{-3}$ & 0.6513 & 0.6565 & 0.6619 & 0.6589 & 0.6552 & 0.6619 & 0.6513 & 0.6550 & 0.6503 & 0.6555 \\
+        \midrule
+        \multirow{3}{*}{0.1} & $10^{-5}$ & 0.6649 & 0.6587 & 0.6629 & 0.6560 & 0.6604 & 0.6535 & 0.6399 & 0.6387 & 0.6476 & 0.6453 \\
+        & $10^{-4}$ & 0.6658 & 0.6676 & 0.6621 & 0.6614 & 0.6604 & 0.6518 & 0.6439 & 0.6387 & 0.6429 & 0.6458 \\
+        & $10^{-3}$ & 0.6695 & 0.6705 & 0.6698 & 0.6612 & 0.6631 & 0.6656 & 0.6451 & 0.6535 & 0.6513 & 0.6503 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+\end{landscape}
+
+\end{document}
