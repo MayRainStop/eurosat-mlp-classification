@@ -15,7 +15,7 @@
 实验报告：
 - `report.pdf`
 - GitHub Repo：`https://github.com/MayRainStop/eurosat-mlp-classification`
-- 模型权重下载地址：`https://drive.google.com/file/d/1eAFBxHwdhvLdK9Uq4B-5a0SveSodhju4/view?usp=sharing`
+- 模型权重下载地址：`[https://drive.google.com/file/d/1eAFBxHwdhvLdK9Uq4B-5a0SveSodhju4/view?usp=sharing](https://drive.google.com/drive/folders/1PeAZQAvgJb33GG4pNwziX1JOcyBc13v6?usp=sharing)`
 
 ## 仓库目录结构
 
